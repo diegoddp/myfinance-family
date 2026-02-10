@@ -1,6 +1,7 @@
 ﻿import { NextResponse } from "next/server";
 import pdfParse from "pdf-parse";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { accounts, categories } from "@/lib/schema";
 import { parseAibStatementText } from "@/lib/aibParser";
 
 export const runtime = "nodejs";
@@ -18,15 +19,16 @@ export async function POST(request: Request) {
     const buffer = Buffer.from(await file.arrayBuffer());
     const pdfData = await pdfParse(buffer);
 
-    const accounts = await prisma.account.findMany();
-    const categories = await prisma.category.findMany();
+    const accountRows = await db.select().from(accounts);
+    const categoryRows = await db.select().from(categories);
 
-    if (accounts.length === 0) {
+    if (accountRows.length === 0) {
       return NextResponse.json({ error: "No accounts found. Seed an account first." }, { status: 400 });
     }
-    const categoryMap = new Map(categories.map((cat) => [cat.name, cat]));
 
-    const result = parseAibStatementText(pdfData.text, accounts.map((acc) => acc.name));
+    const categoryMap = new Map(categoryRows.map((cat) => [cat.name, cat]));
+
+    const result = parseAibStatementText(pdfData.text, accountRows.map((acc) => acc.name));
 
     const rows = result.transactions.map((tx) => {
       const transferCategory = categoryMap.get("Transfer") ?? null;
@@ -45,7 +47,7 @@ export async function POST(request: Request) {
         raw: tx.raw,
         extra: tx.extra ?? [],
         hash: tx.hash,
-        accountId: accountId ?? (accounts[0]?.id ?? null)
+        accountId: accountId ?? accountRows[0]?.id ?? null
       };
     });
 

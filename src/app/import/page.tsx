@@ -1,11 +1,10 @@
-﻿import { prisma } from "@/lib/prisma";
+﻿import { db } from "@/lib/db";
+import { accounts, categories } from "@/lib/schema";
 import ImportClient from "./ImportClient";
 
 export default async function ImportPage() {
-  const [accounts, categories] = await Promise.all([
-    prisma.account.findMany({ orderBy: { name: "asc" } }),
-    prisma.category.findMany({ orderBy: { name: "asc" } })
-  ]);
+  const accountsList = await db.select().from(accounts);
+  const categoryList = await db.select().from(categories);
 
   return (
     <div className="space-y-6">
@@ -14,7 +13,7 @@ export default async function ImportPage() {
         <p className="text-sm text-slate-500">Upload an AIB PDF statement and review extracted transactions.</p>
       </section>
 
-      <ImportClient accounts={accounts} categories={categories} />
+      <ImportClient accounts={accountsList} categories={categoryList} />
     </div>
   );
 }

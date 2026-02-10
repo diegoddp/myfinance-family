@@ -1,6 +1,9 @@
 ﻿import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { inArray } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { importFiles, transactions } from "@/lib/schema";
 import { computeHash } from "@/lib/aibParser";
+import { createId } from "@/lib/id";
 
 export async function POST(request: Request) {
   try {
@@ -11,35 +14,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "No rows provided" }, { status: 400 });
     }
 
-    const importFile = await prisma.importFile.create({
-      data: {
-        filename: filename ?? "statement.pdf",
-        source: source ?? "AIB",
-        statementStart: statementStart ? new Date(statementStart) : undefined,
-        statementEnd: statementEnd ? new Date(statementEnd) : undefined
-      }
+    const importId = createId("imp");
+
+    await db.insert(importFiles).values({
+      id: importId,
+      filename: filename ?? "statement.pdf",
+      source: source ?? "AIB",
+      uploadedAt: new Date(),
+      statementStart: statementStart ? new Date(statementStart) : null,
+      statementEnd: statementEnd ? new Date(statementEnd) : null
     });
 
     const computedHashes = rows.map((row: any) =>
       computeHash(row.date, row.description, Number(row.amount), row.accountId, row.currency ?? "EUR")
     );
 
-    const existingHashes = new Set(
-      (
-        await prisma.transaction.findMany({
-          where: { hash: { in: computedHashes } },
-          select: { hash: true }
-        })
-      ).map((item) => item.hash)
-    );
+    const existing = computedHashes.length
+      ? await db.select({ hash: transactions.hash }).from(transactions).where(inArray(transactions.hash, computedHashes))
+      : [];
 
-    let inserted = 0;
+    const existingHashes = new Set(existing.map((item) => item.hash));
+
+    const insertRows = [];
     let skipped = 0;
 
     for (const row of rows) {
       if (!row.accountId) {
         return NextResponse.json({ error: "Missing accountId for a transaction row." }, { status: 400 });
       }
+
       const hash = computeHash(row.date, row.description, Number(row.amount), row.accountId, row.currency ?? "EUR");
 
       if (existingHashes.has(hash)) {
@@ -47,28 +50,30 @@ export async function POST(request: Request) {
         continue;
       }
 
-      await prisma.transaction.create({
-        data: {
-          date: new Date(row.date),
-          description: row.description,
-          amount: Number(row.amount),
-          currency: row.currency ?? "EUR",
-          accountId: row.accountId,
-          categoryId: row.categoryId ?? null,
-          isTransfer: Boolean(row.isTransfer),
-          importId: importFile.id,
-          hash,
-          metadata: row.extra?.length ? JSON.stringify(row.extra) : undefined
-        }
+      insertRows.push({
+        id: createId("txn"),
+        date: new Date(row.date),
+        description: row.description,
+        amount: Number(row.amount),
+        currency: row.currency ?? "EUR",
+        accountId: row.accountId,
+        categoryId: row.categoryId ?? null,
+        isTransfer: Boolean(row.isTransfer),
+        importId,
+        hash,
+        metadata: row.extra?.length ? JSON.stringify(row.extra) : null,
+        createdAt: new Date()
       });
+    }
 
-      inserted += 1;
+    if (insertRows.length > 0) {
+      await db.insert(transactions).values(insertRows);
     }
 
     return NextResponse.json({
-      inserted,
+      inserted: insertRows.length,
       skipped,
-      importId: importFile.id
+      importId
     });
   } catch (error) {
     console.error(error);

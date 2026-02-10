@@ -1,4 +1,6 @@
-﻿import { prisma } from "@/lib/prisma";
+﻿import { sql } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { accounts, categories, transactions } from "@/lib/schema";
 import { formatCurrency, getMonthKey } from "@/lib/format";
 
 function getMonthRange(monthKey: string) {
@@ -12,29 +14,34 @@ export default async function DashboardPage() {
   const monthKey = getMonthKey();
   const { start, end } = getMonthRange(monthKey);
 
-  const [transactions, categories, accounts] = await Promise.all([
-    prisma.transaction.findMany({
-      orderBy: { date: "desc" },
-      take: 8,
-      include: { category: true, account: true }
-    }),
-    prisma.category.findMany(),
-    prisma.account.findMany()
-  ]);
+  const recentTransactions = await db
+    .select({
+      id: transactions.id,
+      date: transactions.date,
+      description: transactions.description,
+      amount: transactions.amount,
+      currency: transactions.currency,
+      accountName: accounts.name,
+      categoryName: categories.name
+    })
+    .from(transactions)
+    .leftJoin(accounts, sql`${transactions.accountId} = ${accounts.id}`)
+    .leftJoin(categories, sql`${transactions.categoryId} = ${categories.id}`)
+    .orderBy(sql`${transactions.date} DESC`)
+    .limit(8);
 
-  const monthTransactions = await prisma.transaction.findMany({
-    where: {
-      date: {
-        gte: start,
-        lte: end
-      }
-    },
-    include: { category: true }
-  });
+  const monthTransactions = await db
+    .select({
+      amount: transactions.amount,
+      group: categories.group
+    })
+    .from(transactions)
+    .leftJoin(categories, sql`${transactions.categoryId} = ${categories.id}`)
+    .where(sql`${transactions.date} >= ${start} AND ${transactions.date} <= ${end}`);
 
   const totals = monthTransactions.reduce(
     (acc, tx) => {
-      const group = tx.category?.group ?? "variable";
+      const group = tx.group ?? "variable";
       if (group === "income") acc.income += tx.amount;
       if (group === "fixed") acc.fixed += Math.abs(tx.amount);
       if (group === "variable") acc.variable += Math.abs(tx.amount);
@@ -44,10 +51,14 @@ export default async function DashboardPage() {
   );
 
   const net = totals.income - totals.fixed - totals.variable;
-  const netWorthFromBalances = accounts.reduce((sum, acc) => sum + (acc.balance ?? 0), 0);
-  const netWorthFallback = accounts.length
-    ? netWorthFromBalances
-    : (await prisma.transaction.aggregate({ _sum: { amount: true } }))._sum.amount ?? 0;
+
+  const accountRows = await db.select({ balance: accounts.balance }).from(accounts);
+  const netWorthFromBalances = accountRows.reduce((sum, acc) => sum + (acc.balance ?? 0), 0);
+
+  const totalAmount = await db.select({ total: sql<number>`sum(${transactions.amount})` }).from(transactions);
+  const netWorthFallback = accountRows.length ? netWorthFromBalances : totalAmount[0]?.total ?? 0;
+
+  const categoryCount = await db.select({ count: sql<number>`count(*)` }).from(categories);
 
   return (
     <div className="space-y-8">
@@ -82,7 +93,7 @@ export default async function DashboardPage() {
         </div>
         <div className="card p-6">
           <p className="label">Active Categories</p>
-          <h3 className="mt-2 text-xl font-semibold">{categories.length}</h3>
+          <h3 className="mt-2 text-xl font-semibold">{categoryCount[0]?.count ?? 0}</h3>
           <p className="mt-1 text-xs text-slate-500">Ready for classification.</p>
         </div>
       </section>
@@ -106,21 +117,21 @@ export default async function DashboardPage() {
               </tr>
             </thead>
             <tbody>
-              {transactions.length === 0 ? (
+              {recentTransactions.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="py-6 text-center text-sm text-slate-500">
                     No transactions yet. Import a statement to get started.
                   </td>
                 </tr>
               ) : (
-                transactions.map((tx) => (
+                recentTransactions.map((tx) => (
                   <tr key={tx.id}>
-                    <td>{tx.date.toISOString().slice(0, 10)}</td>
+                    <td>{new Date(tx.date).toISOString().slice(0, 10)}</td>
                     <td className="max-w-xs">
                       <p className="font-medium text-slate-700">{tx.description}</p>
                     </td>
-                    <td>{tx.account.name}</td>
-                    <td>{tx.category?.name ?? "Uncategorized"}</td>
+                    <td>{tx.accountName ?? ""}</td>
+                    <td>{tx.categoryName ?? "Uncategorized"}</td>
                     <td className={`text-right font-semibold ${tx.amount >= 0 ? "text-moss" : "text-rose"}`}>
                       {formatCurrency(tx.amount)}
                     </td>

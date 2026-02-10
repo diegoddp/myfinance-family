@@ -1,4 +1,4 @@
-{
+﻿{
   "name": "myfinance-family",
   "version": "0.1.0",
   "private": true,
@@ -7,32 +7,30 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "prisma:migrate": "prisma migrate dev",
-    "prisma:studio": "prisma studio",
-    "seed": "prisma db seed",
+    "db:push": "drizzle-kit push",
+    "db:seed": "tsx scripts/seed.ts",
     "test": "tsx --test tests/aibParser.test.ts"
   },
   "dependencies": {
-    "@prisma/client": "^5.22.0",
+    "better-sqlite3": "^9.6.0",
+    "drizzle-orm": "^0.33.0",
     "next": "^14.2.6",
     "pdf-parse": "^1.1.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^20.12.12",
     "@types/react": "^18.3.3",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
+    "drizzle-kit": "^0.24.0",
     "eslint": "^8.57.0",
     "eslint-config-next": "^14.2.6",
     "postcss": "^8.4.41",
-    "prisma": "^5.22.0",
     "tailwindcss": "^3.4.10",
     "tsx": "^4.16.2",
     "typescript": "^5.5.4"
-  },
-  "prisma": {
-    "seed": "tsx prisma/seed.ts"
   }
 }

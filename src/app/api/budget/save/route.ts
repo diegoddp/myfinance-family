@@ -1,5 +1,7 @@
 ﻿import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { db } from "@/lib/db";
+import { budgetItems } from "@/lib/schema";
+import { createId } from "@/lib/id";
 
 export async function POST(request: Request) {
   try {
@@ -11,16 +13,19 @@ export async function POST(request: Request) {
     }
 
     for (const item of items) {
-      await prisma.budgetItem.upsert({
-        where: {
-          month_categoryId: {
-            month,
-            categoryId: item.categoryId
-          }
-        },
-        update: { amount: Number(item.amount) },
-        create: { month, categoryId: item.categoryId, amount: Number(item.amount) }
-      });
+      await db
+        .insert(budgetItems)
+        .values({
+          id: createId("bud"),
+          month,
+          categoryId: item.categoryId,
+          amount: Number(item.amount),
+          createdAt: new Date()
+        })
+        .onConflictDoUpdate({
+          target: [budgetItems.month, budgetItems.categoryId],
+          set: { amount: Number(item.amount) }
+        });
     }
 
     return NextResponse.json({ status: "ok" });

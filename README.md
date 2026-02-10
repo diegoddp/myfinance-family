@@ -1,6 +1,6 @@
 ﻿# MyFinance Family
 
-Local-first family finance manager built with Next.js, Prisma, and SQLite. Import AIB-style PDF statements, review extracted transactions, and track monthly budgets.
+Local-first family finance manager built with Next.js, Drizzle ORM, and SQLite. Import AIB-style PDF statements, review extracted transactions, and track monthly budgets.
 
 ## Features
 - Accounts, categories, and transactions stored locally in SQLite
@@ -17,20 +17,25 @@ Local-first family finance manager built with Next.js, Prisma, and SQLite. Impor
 npm install
 ```
 
-2. Apply the database schema and seed defaults
+2. Apply the database schema
 
 ```bash
-npx prisma migrate dev
-npx prisma db seed
+npx drizzle-kit push
 ```
 
-3. Run the app
+3. Seed defaults
 
 ```bash
-npm run dev
+npm run db:seed
 ```
 
-Open `http://localhost:3000`.
+4. Run the app
+
+```bash
+npm run dev -- -p 3001
+```
+
+Open `http://localhost:3001`.
 
 ## Import Flow
 1. Go to **Import**.
@@ -49,4 +54,4 @@ npm run test
 ## Notes
 - The parser uses text extraction (`pdf-parse`) and line heuristics. If a PDF renders differently, you may need to tune the rules in `src/lib/aibParser.ts`.
 - Auto-categorization keywords live in `src/lib/categorize.ts`.
-- Budget targets are stored per month in the `BudgetItem` table.
+- Budget targets are stored per month in the `budget_item` table.

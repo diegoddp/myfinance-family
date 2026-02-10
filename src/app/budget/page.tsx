@@ -1,4 +1,6 @@
-﻿import { prisma } from "@/lib/prisma";
+﻿import { sql } from "drizzle-orm";
+import { db } from "@/lib/db";
+import { categories, transactions, budgetItems } from "@/lib/schema";
 import { formatCurrency, formatMonthLabel, getMonthKey } from "@/lib/format";
 import BudgetClient from "./BudgetClient";
 
@@ -17,23 +19,28 @@ export default async function BudgetPage({
   const monthKey = searchParams.month ?? getMonthKey();
   const { start, end } = getMonthRange(monthKey);
 
-  const [categories, transactions, budgets] = await Promise.all([
-    prisma.category.findMany({ orderBy: { group: "asc" } }),
-    prisma.transaction.findMany({
-      where: { date: { gte: start, lte: end } },
-      include: { category: true }
-    }),
-    prisma.budgetItem.findMany({ where: { month: monthKey } })
-  ]);
+  const categoryRows = await db.select().from(categories).orderBy(categories.group);
 
-  const budgetItems = budgets.map((item) => ({
+  const monthTransactions = await db
+    .select({
+      amount: transactions.amount,
+      categoryId: transactions.categoryId,
+      group: categories.group
+    })
+    .from(transactions)
+    .leftJoin(categories, sql`${transactions.categoryId} = ${categories.id}`)
+    .where(sql`${transactions.date} >= ${start} AND ${transactions.date} <= ${end}`);
+
+  const budgetRows = await db.select().from(budgetItems).where(sql`${budgetItems.month} = ${monthKey}`);
+
+  const budgetList = budgetRows.map((item) => ({
     categoryId: item.categoryId,
     amount: item.amount
   }));
 
-  const totals = transactions.reduce(
+  const totals = monthTransactions.reduce(
     (acc, tx) => {
-      const group = tx.category?.group ?? "variable";
+      const group = tx.group ?? "variable";
       if (group === "income") acc.income += tx.amount;
       if (group === "fixed") acc.fixed += Math.abs(tx.amount);
       if (group === "variable") acc.variable += Math.abs(tx.amount);
@@ -52,7 +59,7 @@ export default async function BudgetPage({
             <h2 className="text-xl font-semibold">Budget for {formatMonthLabel(monthKey)}</h2>
             <p className="text-sm text-slate-500">Track fixed and variable spend against your plan.</p>
           </div>
-          <BudgetClient monthKey={monthKey} categories={categories} budgetItems={budgetItems} />
+          <BudgetClient monthKey={monthKey} categories={categoryRows} budgetItems={budgetList} />
         </div>
       </section>
 
@@ -90,13 +97,13 @@ export default async function BudgetPage({
               </tr>
             </thead>
             <tbody>
-              {categories
+              {categoryRows
                 .filter((cat) => cat.group === "fixed")
                 .map((cat) => {
-                  const actual = transactions
+                  const actual = monthTransactions
                     .filter((tx) => tx.categoryId === cat.id)
                     .reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
-                  const planned = budgetItems.find((item) => item.categoryId === cat.id)?.amount ?? 0;
+                  const planned = budgetList.find((item) => item.categoryId === cat.id)?.amount ?? 0;
                   return (
                     <tr key={cat.id}>
                       <td>{cat.name}</td>
@@ -121,10 +128,10 @@ export default async function BudgetPage({
               </tr>
             </thead>
             <tbody>
-              {categories
+              {categoryRows
                 .filter((cat) => cat.group === "variable")
                 .map((cat) => {
-                  const actual = transactions
+                  const actual = monthTransactions
                     .filter((tx) => tx.categoryId === cat.id)
                     .reduce((sum, tx) => sum + Math.abs(tx.amount), 0);
                   return (
